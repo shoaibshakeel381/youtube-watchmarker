@@ -3,9 +3,9 @@
 
     "name": "Youtube Watchmarker",
     "description": "Automatically mark videos on Youtube that you have already watched.",
-    "homepage_url": "https://sniklaus.com/",
+    "homepage_url": "https://github.com/shoaibshakeel381/youtube-watchmarker/tree/devel",
 
-    "version": "4.3.1",
+    "version": "4.3.2",
 
     "permissions": ["alarms", "downloads", "history", "tabs", "cookies", "webRequest", "webRequestBlocking", "*://www.youtube.com/*", "*://*.ytimg.com/vi/*/*"],
 
@@ -15,7 +15,7 @@
 
     "applications": {
         "gecko": {
-            "id": "yourect@coderect.com",
+            "id": "shoaibshakeel381@youtubewatchmarker",
             "strict_min_version": "55.0"
         }
     },
