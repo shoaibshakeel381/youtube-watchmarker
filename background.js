@@ -1905,10 +1905,20 @@ Node.series({
                     'value': 'https://www.youtube.com/feed/history'
                 });
 
-                objHeaders.push({
-                    'name': 'Origin',
-                    'value': 'https://www.youtube.com'
-                });
+                let originHeaderFound = false;
+                for (const header of objHeaders) {
+                    if (header.name.toLowerCase() === "origin") {
+                        header.value = 'https://www.youtube.com'
+                        originHeaderFound = true;
+                    }
+                }
+
+                if (!originHeaderFound) {
+                    objHeaders.push({
+                        'name': 'Origin',
+                        'value': 'https://www.youtube.com'
+                    });
+                }
 
                 objData.requestHeaders.splice(0);
                 objData.requestHeaders.push(...objHeaders);
