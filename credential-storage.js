@@ -395,7 +395,7 @@ export class CredentialStorage {
         throw fetchError;
       }
     } catch (error) {
-      console.error("Supabase connection test failed:", error.message);
+      console.warn("Supabase connection test failed:", error.message);
       return false;
     }
   }

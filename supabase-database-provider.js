@@ -141,30 +141,36 @@ export class SupabaseDatabaseProvider {
   }
 
   validateApiKey(apiKey) {
-    return apiKey && typeof apiKey === "string" && apiKey.length >= 100;
+    return apiKey && typeof apiKey === "string" && apiKey.trim().length >= 20;
   }
 
   /**
    * Load and validate stored credentials.
+   * @param {Object} options - Load options
+   * @param {boolean} options.throwOnError - Throw instead of returning false
    * @returns {Promise<boolean>} True when usable credentials are available
    */
-  async loadCredentials() {
+  async loadCredentials({ throwOnError = false } = {}) {
+    const fail = (message) => {
+      this.baseUrl = null;
+      this.apiKey = null;
+      if (throwOnError) {
+        throw new Error(message);
+      }
+      return false;
+    };
+
     this.credentials = await credentialStorage.getCredentials();
     if (!this.credentials) {
-      return false;
+      return fail("No Supabase credentials found");
     }
 
     if (!this.validateSupabaseUrl(this.credentials.supabaseUrl)) {
-      console.error(
-        "Invalid Supabase URL format:",
-        this.credentials.supabaseUrl,
-      );
-      return false;
+      return fail("Invalid Supabase URL format");
     }
 
     if (!this.validateApiKey(this.credentials.apiKey)) {
-      console.error("Invalid API key format");
-      return false;
+      return fail("Invalid Supabase API key format");
     }
 
     this.baseUrl = this.credentials.supabaseUrl;
@@ -232,9 +238,7 @@ export class SupabaseDatabaseProvider {
    */
   async init() {
     try {
-      if (!(await this.loadCredentials())) {
-        return false;
-      }
+      await this.loadCredentials({ throwOnError: true });
 
       // Test connection and ensure schema
       await this.ensureSchema();
@@ -244,24 +248,24 @@ export class SupabaseDatabaseProvider {
 
       return true;
     } catch (error) {
-      console.error("Failed to initialize Supabase provider:", error.message);
       this.isInitialized = false;
       this.isConnected = false;
-      return false;
+      throw error;
     }
   }
 
   /**
-   * Check if the database table exists
-   * @returns {Promise<boolean>} True if table exists and is accessible
+   * Check the database table status without requiring full provider init.
+   * @returns {Promise<Object>} Table status
    */
-  async checkTableExists() {
+  async checkTableStatus() {
     try {
-      if (!this.baseUrl || !this.apiKey) {
-        const loaded = await this.loadCredentials();
-        if (!loaded) {
-          return false;
-        }
+      const loaded = await this.loadCredentials();
+      if (!loaded) {
+        return {
+          exists: false,
+          reason: "credentials-missing",
+        };
       }
 
       const response = await this.makeRequest(
@@ -275,11 +279,56 @@ export class SupabaseDatabaseProvider {
         },
         { throwOnHttpError: false, useCircuitBreaker: false },
       );
-      return response.ok;
+
+      return {
+        exists: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+      };
     } catch (error) {
       console.debug("Table existence check failed:", error);
-      return false;
+      return {
+        exists: false,
+        error: error.message,
+      };
     }
+  }
+
+  /**
+   * Check if the database table exists
+   * @returns {Promise<boolean>} True if table exists and is accessible
+   */
+  async checkTableExists() {
+    const tableStatus = await this.checkTableStatus();
+    return tableStatus.exists;
+  }
+
+  getTableStatusError(tableStatus) {
+    if (tableStatus.reason === "credentials-missing") {
+      return "No valid Supabase credentials found. Save the Supabase configuration first.";
+    }
+
+    if (tableStatus.status === 401) {
+      return "Supabase rejected the API key (HTTP 401). Check the configured API key.";
+    }
+
+    if (tableStatus.status === 403) {
+      return "The configured Supabase API key cannot access the watch history table (HTTP 403).";
+    }
+
+    if (tableStatus.status === 404) {
+      return `Supabase table "${this.tableName}" does not exist or the PostgREST schema cache has not refreshed. Run the SQL setup in the options page, then test again.`;
+    }
+
+    if (tableStatus.status) {
+      return `Supabase table "${this.tableName}" is not accessible (HTTP ${tableStatus.status}: ${tableStatus.statusText || "unknown error"}).`;
+    }
+
+    if (tableStatus.error) {
+      return `Could not check Supabase table "${this.tableName}": ${tableStatus.error}`;
+    }
+
+    return `Supabase table "${this.tableName}" is not accessible.`;
   }
 
   /**
@@ -287,29 +336,12 @@ export class SupabaseDatabaseProvider {
    * @private
    */
   async ensureSchema() {
-    try {
-      if (await this.checkTableExists()) {
-        return;
-      }
-
-      console.error("Table does not exist. Create it with this SQL:");
-      console.error(`CREATE TABLE IF NOT EXISTS ${this.tableName} (
-  str_ident VARCHAR(255) PRIMARY KEY,
-  int_timestamp BIGINT NOT NULL,
-  str_title TEXT,
-  int_count INTEGER DEFAULT 1 NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);`);
-
-      throw new Error(
-        "Database table does not exist. Please create it using the SQL above.",
-      );
-    } catch (error) {
-      if (error.message.includes("Database table does not exist")) throw error;
-      console.error("Failed to ensure schema:", error.message);
-      throw error;
+    const tableStatus = await this.checkTableStatus();
+    if (tableStatus.exists) {
+      return;
     }
+
+    throw new Error(this.getTableStatusError(tableStatus));
   }
 
   async retryRequest(requestFn, retries = this.maxRetries, attempt = 1) {
@@ -443,7 +475,7 @@ export class SupabaseDatabaseProvider {
       this.isConnected = response.ok;
       return this.isConnected;
     } catch (error) {
-      console.error("Supabase connection test failed:", error.message);
+      console.warn("Supabase connection test failed:", error.message);
       this.isConnected = false;
       return false;
     }

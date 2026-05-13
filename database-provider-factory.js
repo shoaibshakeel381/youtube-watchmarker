@@ -309,9 +309,12 @@ export class DatabaseProviderFactory {
    * Enable Supabase as a backup sync destination
    * NOTE: IndexedDB remains the primary provider for reads/writes
    * Supabase is used for write-behind sync (backup)
+   * @param {Object} options - Switch options
+   * @param {boolean} options.logFailure - Log failures as errors. Startup restore
+   *   uses warnings because IndexedDB fallback is expected behavior.
    * @returns {Promise<boolean>} Success status
    */
-  async switchToSupabase() {
+  async switchToSupabase({ logFailure = true } = {}) {
     try {
       // Check if credentials are available
       const hasCredentials = await credentialStorage.hasCredentials();
@@ -346,19 +349,27 @@ export class DatabaseProviderFactory {
         } catch (error) {
           lastError = error;
 
-          if (initAttempts < maxInitAttempts) {
-            // Wait before retrying (exponential backoff)
-            const delay = Math.pow(2, initAttempts) * 1000;
-            await new Promise((resolve) => setTimeout(resolve, delay));
+          const shouldRetry =
+            initAttempts < maxInitAttempts &&
+            supabaseDatabaseProvider.isRetryableError(error);
+
+          if (!shouldRetry) {
+            break;
           }
+
+          // Wait before retrying transient failures (exponential backoff)
+          const delay = Math.pow(2, initAttempts) * 1000;
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
 
       if (!success) {
         const errorMessage =
           lastError?.message || "Unknown initialization error";
+        const attemptsDescription =
+          initAttempts === 1 ? "1 attempt" : `${initAttempts} attempts`;
         throw new Error(
-          `Failed to initialize Supabase provider after ${maxInitAttempts} attempts: ${errorMessage}`,
+          `Failed to initialize Supabase provider after ${attemptsDescription}: ${errorMessage}`,
         );
       }
 
@@ -387,7 +398,14 @@ export class DatabaseProviderFactory {
       logger.info("Supabase enabled as backup sync destination");
       return true;
     } catch (error) {
-      logger.error("Failed to enable Supabase:", error.message);
+      if (logFailure) {
+        logger.error("Failed to enable Supabase:", error.message);
+      } else {
+        logger.warn(
+          "Supabase auto-enable failed; using IndexedDB:",
+          error.message,
+        );
+      }
 
       // Disable Supabase sync on failure
       this.supabaseEnabled = false;
@@ -440,7 +458,7 @@ export class DatabaseProviderFactory {
       // Try to initialize the saved provider
       if (savedProvider === "supabase") {
         try {
-          const success = await this.switchToSupabase();
+          const success = await this.switchToSupabase({ logFailure: false });
           if (success) {
             return true;
           }

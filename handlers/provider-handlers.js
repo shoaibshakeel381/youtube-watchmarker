@@ -168,14 +168,8 @@ export const handleSupabaseGetStatus = createHandler(
  */
 export const handleSupabaseCheckTable = createHandler(
   async () => {
-    // Table existence must be checked against the Supabase provider directly.
-    // The provider factory always returns IndexedDB as the primary provider.
-    if (!supabaseDatabaseProvider.isInitialized) {
-      await supabaseDatabaseProvider.init();
-    }
-
-    const exists = await supabaseDatabaseProvider.checkTableExists();
-    return { tableExists: exists };
+    const tableStatus = await supabaseDatabaseProvider.checkTableStatus();
+    return { tableExists: tableStatus.exists, tableStatus };
   },
   { name: "handleSupabaseCheckTable", requiresRequest: false },
 );

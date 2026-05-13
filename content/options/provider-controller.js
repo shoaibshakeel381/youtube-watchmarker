@@ -105,21 +105,22 @@ export class ProviderController {
         throw new Error(testResponse?.error || "Saved credentials failed");
       }
 
-      await this.commitProviderChange("supabase");
       const tableExists = await this.checkTableExists();
-      if (tableExists) {
-        this.updateSupabaseStatus(
-          "success",
-          "Connected to Supabase. Table is ready.",
-        );
-        this.hideSetupInstructions();
-      } else {
+      if (!tableExists) {
         this.updateSupabaseStatus(
           "warning",
-          "Connected to Supabase, but the table setup is still required.",
+          "Connection successful, but the table setup is required before Supabase can be enabled.",
         );
         this.showSetupInstructions();
+        return;
       }
+
+      await this.commitProviderChange("supabase");
+      this.updateSupabaseStatus(
+        "success",
+        "Connected to Supabase. Table is ready.",
+      );
+      this.hideSetupInstructions();
     } catch (error) {
       this.feedback.error(`Provider switch failed: ${error.message}`);
       this.elements.providerIndexedDB.checked = provider !== "indexeddb";
