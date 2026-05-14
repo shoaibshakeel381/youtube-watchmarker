@@ -1,5 +1,6 @@
 import { logger } from "./logger.js";
 import { YOUTUBE } from "./constants.js";
+import { Youtube } from "./bg-youtube.js";
 
 /**
  * Search management class
@@ -105,10 +106,10 @@ export class SearchManager {
   }
 
   /**
-   * Delete a video from database and browser history
+   * Delete a video from database, browser history, and best-effort YouTube history
    * @param {string} videoId - Video ID to delete
    * @param {Function} [onProgress] - Optional progress callback
-   * @returns {Promise<boolean>} Success status
+   * @returns {Promise<Object>} Deletion result
    */
   async delete(videoId, onProgress = null) {
     try {
@@ -117,7 +118,7 @@ export class SearchManager {
       // Step 1: Delete from database
       if (onProgress) {
         onProgress({
-          strProgress: "1/2 - deleting it from the database",
+          strProgress: "1/3 - deleting it from the database",
         });
       }
 
@@ -126,7 +127,7 @@ export class SearchManager {
       // Step 2: Delete from browser history
       if (onProgress) {
         onProgress({
-          strProgress: "2/2 - deleting it from the history in the browser",
+          strProgress: "2/3 - deleting it from the history in the browser",
         });
       }
 
@@ -162,11 +163,42 @@ export class SearchManager {
         });
       }
 
-      logger.info(`Deleted video ${videoId} from database and history`);
-      return true;
+      const youtubeHistory = await this.deleteFromYouTubeHistory(videoId, {
+        onProgress,
+      });
+
+      logger.info(`Deleted video ${videoId} from local history`);
+      return {
+        deleted: true,
+        youtubeHistory,
+      };
     } catch (error) {
       logger.error("Search delete error:", error);
       throw error;
+    }
+  }
+
+  async deleteFromYouTubeHistory(videoId, { onProgress } = {}) {
+    if (onProgress) {
+      onProgress({
+        strProgress: "3/3 - deleting it from the first page of YouTube history",
+      });
+    }
+
+    try {
+      await Youtube.deleteFromHistoryFirstPage(videoId);
+      return { success: true };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown YouTube error";
+      logger.warn(
+        `Could not delete video ${videoId} from YouTube history:`,
+        message,
+      );
+      return {
+        success: false,
+        error: message,
+      };
     }
   }
 }

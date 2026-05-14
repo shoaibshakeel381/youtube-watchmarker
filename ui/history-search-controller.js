@@ -154,7 +154,13 @@ export class HistorySearchController {
         throw new Error(response?.error || "Delete failed");
       }
 
-      this.feedback.success("Video deleted successfully");
+      if (response.youtubeHistory?.success === false) {
+        this.feedback.success(
+          `Video deleted locally. YouTube history was not changed: ${response.youtubeHistory.error}`,
+        );
+      } else {
+        this.feedback.success("Video deleted successfully");
+      }
 
       const totalPagesAfterDelete = Math.ceil(
         (this.state.totalResults - 1) / this.state.pageSize,

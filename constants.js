@@ -111,6 +111,7 @@ export const YOUTUBE = {
     BASE: "https://www.youtube.com/youtubei/v1/",
     ENDPOINTS: {
       BROWSE: "browse",
+      FEEDBACK: "feedback",
       NEXT: "next",
     },
   },

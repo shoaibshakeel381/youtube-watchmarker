@@ -2,6 +2,7 @@ import { isValidVideoTitle, VIDEO_ID_LENGTH } from "./validation.js";
 import { TIMEOUTS, YOUTUBE } from "./constants.js";
 import { logger } from "./logger.js";
 import {
+  extractHistoryFeedbackToken,
   extractHistoryContinuationToken,
   extractInnerTubeConfig,
   parseHistoryContinuationResponse,
@@ -401,6 +402,90 @@ export class YoutubeManager {
       logger.error("Liked videos synchronization error:", error);
       throw error;
     }
+  }
+
+  /**
+   * Remove a video from the signed-in user's YouTube watch history when it is
+   * present on the first history page.
+   * @param {string} videoId - Video ID to remove
+   * @returns {Promise<{success: boolean}>} Deletion result
+   */
+  async deleteFromHistoryFirstPage(videoId) {
+    if (
+      !videoId ||
+      typeof videoId !== "string" ||
+      videoId.length !== VIDEO_ID_LENGTH
+    ) {
+      throw new Error("Invalid video ID");
+    }
+
+    const response = await fetch(YOUTUBE.URLS.HISTORY, {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Could not load YouTube history (HTTP ${response.status})`,
+      );
+    }
+
+    const responseText = await response.text();
+    const innerTube = extractInnerTubeConfig(responseText);
+    const feedbackToken = extractHistoryFeedbackToken(responseText, videoId);
+
+    if (!feedbackToken) {
+      throw new Error("Video was not found on the first YouTube history page");
+    }
+
+    if (!innerTube.apiKey || !innerTube.context) {
+      throw new Error("Could not read YouTube request configuration");
+    }
+
+    const sapisid = await getSapisidCookie();
+    if (!sapisid) {
+      throw new Error("YouTube sign-in cookie was not available");
+    }
+
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: await computeSapisidHash(sapisid),
+      "X-Origin": YOUTUBE_ORIGIN,
+      "X-Goog-AuthUser": "0",
+    };
+    if (innerTube.clientName) {
+      headers["X-Youtube-Client-Name"] = innerTube.clientName;
+    }
+    if (innerTube.clientVersion) {
+      headers["X-Youtube-Client-Version"] = innerTube.clientVersion;
+    }
+
+    const feedbackUrl = `${YOUTUBE.API.BASE}${YOUTUBE.API.ENDPOINTS.FEEDBACK}?key=${encodeURIComponent(innerTube.apiKey)}&prettyPrint=false`;
+    const feedbackResponse = await fetch(feedbackUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        context: innerTube.context,
+        isFeedbackTokenUnencrypted: false,
+        shouldMerge: false,
+        feedbackTokens: [feedbackToken],
+      }),
+      credentials: "include",
+    });
+
+    if (!feedbackResponse.ok) {
+      throw new Error(
+        `YouTube history delete failed (HTTP ${feedbackResponse.status})`,
+      );
+    }
+
+    const feedbackJson = await feedbackResponse.json();
+    const processed = feedbackJson?.feedbackResponses?.[0]?.isProcessed;
+    if (processed !== true) {
+      throw new Error("YouTube did not confirm the history deletion");
+    }
+
+    logger.info(`Deleted video ${videoId} from first YouTube history page`);
+    return { success: true };
   }
 
   /**

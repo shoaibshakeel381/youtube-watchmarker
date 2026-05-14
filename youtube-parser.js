@@ -271,6 +271,43 @@ function extractBalancedObject(text, startIdx) {
 }
 
 /**
+ * Extract and parse ytInitialData from a YouTube HTML page.
+ * @param {string} responseText - Raw HTML response
+ * @returns {Object|null} Parsed ytInitialData, or null when unavailable
+ */
+export function extractYtInitialData(responseText) {
+  const patterns = [
+    /\b(?:var\s+)?ytInitialData\s*=/g,
+    /window\["ytInitialData"\]\s*=/g,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(responseText);
+    if (!match) {
+      continue;
+    }
+
+    const objStart = responseText.indexOf("{", match.index + match[0].length);
+    if (objStart < 0) {
+      continue;
+    }
+
+    const objStr = extractBalancedObject(responseText, objStart);
+    if (!objStr) {
+      continue;
+    }
+
+    try {
+      return JSON.parse(objStr);
+    } catch (error) {
+      logger.warn("Failed to parse ytInitialData:", error);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extract the InnerTube API key and request context from a YouTube HTML page.
  * Both values are needed to call /youtubei/v1/browse for paginated continuation.
  * @param {string} responseText - Raw HTML response
@@ -287,6 +324,13 @@ export function extractInnerTubeConfig(responseText) {
     apiKey = apiKeyMatch[1];
   }
 
+  const contextClientNameMatch = responseText.match(
+    /"INNERTUBE_CONTEXT_CLIENT_NAME":\s*(?:"([^"]+)"|(\d+))/,
+  );
+  if (contextClientNameMatch) {
+    clientName = contextClientNameMatch[1] || contextClientNameMatch[2];
+  }
+
   const ctxIdx = responseText.indexOf('"INNERTUBE_CONTEXT":');
   if (ctxIdx >= 0) {
     const objStart = responseText.indexOf("{", ctxIdx);
@@ -295,7 +339,7 @@ export function extractInnerTubeConfig(responseText) {
       if (objStr) {
         try {
           context = JSON.parse(objStr);
-          clientName = context?.client?.clientName || null;
+          clientName = clientName || context?.client?.clientName || null;
           clientVersion = context?.client?.clientVersion || null;
         } catch (error) {
           logger.warn("Failed to parse INNERTUBE_CONTEXT:", error);
@@ -322,31 +366,104 @@ export function extractInnerTubeConfig(responseText) {
  * @returns {string|null} Continuation token, or null if absent
  */
 export function extractHistoryContinuationToken(responseText) {
-  const dataMatch = responseText.match(/var\s+ytInitialData\s*=\s*({.+?});/s);
-  if (!dataMatch) {
+  const ytInitialData = extractYtInitialData(responseText);
+  if (!ytInitialData) {
     return null;
   }
-  try {
-    const ytInitialData = JSON.parse(dataMatch[1]);
-    const sections = getNestedProperty(
-      ytInitialData,
-      "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents",
+
+  const sections = getNestedProperty(
+    ytInitialData,
+    "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents",
+  );
+  if (!Array.isArray(sections)) {
+    return null;
+  }
+
+  for (const section of sections) {
+    const token = getNestedProperty(
+      section,
+      "continuationItemRenderer.continuationEndpoint.continuationCommand.token",
     );
-    if (!Array.isArray(sections)) {
-      return null;
+    if (token) {
+      return token;
     }
-    for (const section of sections) {
-      const token = getNestedProperty(
-        section,
-        "continuationItemRenderer.continuationEndpoint.continuationCommand.token",
-      );
+  }
+
+  return null;
+}
+
+function findFeedbackEndpointToken(node) {
+  if (!node || typeof node !== "object") {
+    return null;
+  }
+
+  if (
+    typeof node.feedbackEndpoint?.feedbackToken === "string" &&
+    node.feedbackEndpoint.feedbackToken
+  ) {
+    return node.feedbackEndpoint.feedbackToken;
+  }
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const token = findFeedbackEndpointToken(item);
       if (token) {
         return token;
       }
     }
-  } catch (error) {
-    logger.warn("Failed to parse ytInitialData for continuation token:", error);
+    return null;
   }
+
+  for (const value of Object.values(node)) {
+    const token = findFeedbackEndpointToken(value);
+    if (token) {
+      return token;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract the first-page "Remove from watch history" feedback token for a video.
+ * This intentionally does not inspect continuation pages.
+ * @param {string} responseText - Raw YouTube history HTML response
+ * @param {string} videoId - YouTube video ID
+ * @returns {string|null} Feedback token, or null when the video/token is absent
+ */
+export function extractHistoryFeedbackToken(responseText, videoId) {
+  const ytInitialData = extractYtInitialData(responseText);
+  if (!ytInitialData) {
+    return null;
+  }
+
+  const sections = getNestedProperty(
+    ytInitialData,
+    "contents.twoColumnBrowseResultsRenderer.tabs.0.tabRenderer.content.sectionListRenderer.contents",
+  );
+  if (!Array.isArray(sections)) {
+    return null;
+  }
+
+  for (const section of sections) {
+    const items = getNestedProperty(section, "itemSectionRenderer.contents");
+    if (!Array.isArray(items)) {
+      continue;
+    }
+
+    for (const item of items) {
+      const itemVideoId =
+        getNestedProperty(item, "videoRenderer.videoId") ||
+        getNestedProperty(item, "lockupViewModel.contentId");
+
+      if (itemVideoId !== videoId) {
+        continue;
+      }
+
+      return findFeedbackEndpointToken(item);
+    }
+  }
+
   return null;
 }
 
@@ -401,13 +518,10 @@ export function parseHistoryPage(responseText) {
     .replaceAll("\n", "");
 
   // Try to find and parse the main data structure
-  const dataRegex = /var\s+ytInitialData\s*=\s*({.+?});/s;
-  const dataMatch = responseText.match(dataRegex);
+  const ytInitialData = extractYtInitialData(responseText);
 
-  if (dataMatch) {
+  if (ytInitialData) {
     try {
-      const ytInitialData = JSON.parse(dataMatch[1]);
-
       // Navigate through the YouTube data structure
       const contents = getNestedProperty(
         ytInitialData,

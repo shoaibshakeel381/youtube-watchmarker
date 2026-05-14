@@ -37,9 +37,9 @@ export const handleSearchDelete = createHandler(async (request) => {
     return { success: false, error: "Missing video ID" };
   }
 
-  const success = await Search.delete(videoId, (progress) => {
+  const result = await Search.delete(videoId, (progress) => {
     logger.debug("Delete progress:", progress);
   });
 
-  return { success };
+  return { success: true, ...result };
 }, "handleSearchDelete");
