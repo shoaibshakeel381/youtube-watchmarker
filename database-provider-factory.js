@@ -317,11 +317,11 @@ export class DatabaseProviderFactory {
   async switchToSupabase({ logFailure = true } = {}) {
     try {
       // Check if credentials are available
-      const hasCredentials = await credentialStorage.hasCredentials();
+      const hasCredentials = await credentialStorage.hasAuthenticatedSession();
 
       if (!hasCredentials) {
         throw new Error(
-          'No Supabase credentials found. Please configure Supabase credentials first using the "Save Configuration" button.',
+          "No authenticated Supabase session found. Configure the project and sign in first.",
         );
       }
 
@@ -523,7 +523,8 @@ export class DatabaseProviderFactory {
     ];
 
     // Check if Supabase is available
-    const hasSupabaseCredentials = await credentialStorage.hasCredentials();
+    const hasSupabaseCredentials =
+      await credentialStorage.hasAuthenticatedSession();
     providers.push({
       id: "supabase",
       name: "Supabase (PostgreSQL)",

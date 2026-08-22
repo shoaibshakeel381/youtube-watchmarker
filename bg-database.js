@@ -315,25 +315,6 @@ export class DatabaseManager {
   }
 
   /**
-   * Configure Supabase
-   * @param {string} url - Supabase URL
-   * @param {string} apiKey - Supabase API key
-   * @returns {Promise<void>}
-   */
-  async configureSupabase(url, apiKey) {
-    try {
-      await credentialStorage.storeCredentials({
-        supabaseUrl: url,
-        apiKey: apiKey,
-      });
-      logger.info("Supabase configured successfully");
-    } catch (error) {
-      logger.error("Failed to configure Supabase:", error);
-      throw error;
-    }
-  }
-
-  /**
    * Test Supabase connection
    * @returns {Promise<boolean>} Connection test result
    */
@@ -392,8 +373,10 @@ export class DatabaseManager {
    */
   async getSupabaseStatus() {
     try {
-      const hasCredentials = await credentialStorage.hasCredentials();
-      const isConfigured = hasCredentials;
+      const [isConfigured, hasAuthenticatedSession] = await Promise.all([
+        credentialStorage.hasConfiguration(),
+        credentialStorage.hasAuthenticatedSession(),
+      ]);
       let isConnected = false;
 
       if (isConfigured) {
@@ -407,7 +390,7 @@ export class DatabaseManager {
       return {
         configured: isConfigured,
         connected: isConnected,
-        hasCredentials: hasCredentials,
+        hasCredentials: hasAuthenticatedSession,
       };
     } catch (error) {
       logger.error("Failed to get Supabase status:", error);

@@ -16,8 +16,7 @@
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://m.youtube.com/*",
-    "https://*.supabase.co/*",
-    "https://*.supabase.in/*"
+    "https://*.supabase.co/*"
   ],
   "background": {
     "service_worker": "background.js",

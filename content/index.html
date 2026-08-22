@@ -404,16 +404,20 @@
                       </h6>
                       <div class="row">
                         <div class="col-md-6">
-                          <small class="text-muted">Supabase URL:</small>
-                          <div class="font-monospace" id="current-url">-</div>
+                          <small class="text-muted">Project ID:</small>
+                          <div class="font-monospace" id="current-project-id">
+                            -
+                          </div>
                         </div>
                         <div class="col-md-6">
-                          <small class="text-muted"
-                            >Service Role API Key:</small
-                          >
+                          <small class="text-muted">Publishable API Key:</small>
                           <div class="font-monospace" id="current-api-key">
                             -
                           </div>
+                        </div>
+                        <div class="col-12 mt-2">
+                          <small class="text-muted">Auth user:</small>
+                          <div id="current-auth-user">Not signed in</div>
                         </div>
                       </div>
                     </div>
@@ -421,30 +425,68 @@
 
                   <div class="row g-3">
                     <div class="col-12">
-                      <label for="supabase_url" class="form-label"
-                        >Supabase URL</label
+                      <label for="supabase_project_id" class="form-label"
+                        >Supabase Project ID</label
                       >
                       <input
-                        type="url"
+                        type="text"
                         class="form-control"
-                        id="supabase_url"
-                        placeholder="https://your-project.supabase.co"
+                        id="supabase_project_id"
+                        placeholder="abcdefghijklmnopqrst"
+                        minlength="20"
+                        maxlength="20"
+                        pattern="[a-z]{20}"
+                        autocapitalize="none"
+                        spellcheck="false"
                       />
-                      <div class="form-text">Your Supabase project URL</div>
+                      <div class="form-text">
+                        The 20-character ID from your Supabase project settings
+                      </div>
                     </div>
 
                     <div class="col-12">
                       <label for="supabase_api_key" class="form-label"
-                        >Service Role API Key</label
+                        >Publishable API Key</label
                       >
                       <input
                         type="password"
                         class="form-control"
                         id="supabase_api_key"
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        placeholder="sb_publishable_..."
                       />
                       <div class="form-text">
-                        Your Supabase service role key (not anon key)
+                        Use only an <code>sb_publishable_...</code> key. Never
+                        enter a secret or service-role key in an extension.
+                      </div>
+                    </div>
+
+                    <div class="col-md-6">
+                      <label for="supabase_email" class="form-label"
+                        >Sync Email</label
+                      >
+                      <input
+                        type="email"
+                        autocomplete="username"
+                        class="form-control"
+                        id="supabase_email"
+                      />
+                    </div>
+
+                    <div class="col-md-6">
+                      <label for="supabase_password" class="form-label"
+                        >Sync Password</label
+                      >
+                      <input
+                        type="password"
+                        autocomplete="current-password"
+                        class="form-control"
+                        id="supabase_password"
+                      />
+                    </div>
+                    <div class="col-12">
+                      <div class="form-text">
+                        Use the same email and password on every computer. Your
+                        password is used only to sign in and is never stored.
                       </div>
                     </div>
                   </div>
@@ -468,24 +510,18 @@
                   <div class="mt-3">
                     <button
                       type="button"
-                      class="btn btn-outline-primary me-2"
-                      id="supabase_save"
+                      class="btn btn-primary me-2"
+                      id="supabase_save_credentials"
                     >
-                      <i class="fas fa-save me-2"></i>Save Configuration
+                      <i class="fas fa-save me-2"></i>Save Credentials
                     </button>
                     <button
                       type="button"
-                      class="btn btn-outline-secondary me-2"
+                      class="btn btn-outline-secondary me-2 d-none"
                       id="supabase_test"
+                      disabled
                     >
                       <i class="fas fa-plug me-2"></i>Test Connection
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-outline-danger me-2"
-                      id="supabase_clear"
-                    >
-                      <i class="fas fa-trash me-2"></i>Clear Configuration
                     </button>
                   </div>
 
@@ -540,81 +576,45 @@
                           "
                         >
                           <pre class="mb-0" id="supabase-sql-code">
--- YouTube Watchmarker Table Schema
--- Run this SQL in your Supabase SQL Editor
-
--- Create main table for storing YouTube watch history
-CREATE TABLE IF NOT EXISTS youtube_watch_history (
-  str_ident VARCHAR(255) PRIMARY KEY,
+-- Secure YouTube Watchmarker schema for a new Supabase project
+CREATE TABLE IF NOT EXISTS public.youtube_watch_history (
+  user_id UUID NOT NULL DEFAULT auth.uid()
+    REFERENCES auth.users(id) ON DELETE CASCADE,
+  str_ident VARCHAR(255) NOT NULL,
   int_timestamp BIGINT NOT NULL,
   str_title TEXT,
   int_count INTEGER DEFAULT 1 NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, str_ident),
+  CONSTRAINT check_positive_count CHECK (int_count > 0),
+  CONSTRAINT check_valid_timestamp CHECK (int_timestamp > 0),
+  CONSTRAINT check_title_length CHECK (char_length(str_title) &lt;= 1000)
 );
 
--- Add performance indexes
-CREATE INDEX IF NOT EXISTS idx_youtube_watch_history_timestamp 
-ON youtube_watch_history (int_timestamp);
+CREATE INDEX IF NOT EXISTS idx_watch_history_user_timestamp
+  ON public.youtube_watch_history (user_id, int_timestamp DESC);
 
-CREATE INDEX IF NOT EXISTS idx_youtube_watch_history_created_at 
-ON youtube_watch_history (created_at);
+ALTER TABLE public.youtube_watch_history ENABLE ROW LEVEL SECURITY;
 
--- Add full-text search index for video titles
-CREATE INDEX IF NOT EXISTS idx_youtube_watch_history_title_search 
-ON youtube_watch_history USING gin(to_tsvector('english', str_title));
+CREATE POLICY "Users can view their watch history"
+  ON public.youtube_watch_history FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+CREATE POLICY "Users can insert their watch history"
+  ON public.youtube_watch_history FOR INSERT TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY "Users can update their watch history"
+  ON public.youtube_watch_history FOR UPDATE TO authenticated
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY "Users can delete their watch history"
+  ON public.youtube_watch_history FOR DELETE TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
 
--- Add data validation constraints
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint 
-    WHERE conname = 'check_positive_count'
-    AND conrelid = 'public.youtube_watch_history'::regclass
-  ) THEN
-    ALTER TABLE public.youtube_watch_history 
-    ADD CONSTRAINT check_positive_count CHECK (int_count > 0);
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint 
-    WHERE conname = 'check_valid_timestamp'
-    AND conrelid = 'public.youtube_watch_history'::regclass
-  ) THEN
-    ALTER TABLE public.youtube_watch_history 
-    ADD CONSTRAINT check_valid_timestamp CHECK (int_timestamp > 0);
-  END IF;
-END $$;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint 
-    WHERE conname = 'check_title_length'
-    AND conrelid = 'public.youtube_watch_history'::regclass
-  ) THEN
-    ALTER TABLE public.youtube_watch_history 
-    ADD CONSTRAINT check_title_length CHECK (char_length(str_title) <= 1000);
-  END IF;
-END $$;
-
--- Refresh PostgREST schema cache after creating or changing the table
-NOTIFY pgrst, 'reload schema';
-
--- Verify table creation
-SELECT 
-  schemaname,
-  tablename,
-  tableowner,
-  hasindexes,
-  hasrules,
-  hastriggers
-FROM pg_tables 
-WHERE schemaname = 'public' 
-AND tablename = 'youtube_watch_history';</pre
+REVOKE ALL ON public.youtube_watch_history FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON public.youtube_watch_history TO authenticated;
+NOTIFY pgrst, 'reload schema';</pre
                           >
                         </div>
                         <div class="mt-2">

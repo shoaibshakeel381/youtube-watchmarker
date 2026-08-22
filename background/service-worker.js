@@ -40,9 +40,8 @@ import {
   handleProviderList,
   handleProviderMigrate,
   handleProviderSync,
-  handleSupabaseConfigure,
+  handleSupabaseSaveCredentials,
   handleSupabaseTest,
-  handleSupabaseClear,
   handleSupabaseGetCredentials,
   handleSupabaseGetStatus,
   handleSupabaseCheckTable,
@@ -87,9 +86,10 @@ function registerMessageHandlers() {
     "database-provider-list": withInitialization(handleProviderList),
     "database-provider-migrate": withInitialization(handleProviderMigrate),
     "database-provider-sync": withInitialization(handleProviderSync),
-    "supabase-configure": withInitialization(handleSupabaseConfigure),
+    "supabase-save-credentials": withInitialization(
+      handleSupabaseSaveCredentials,
+    ),
     "supabase-test": withInitialization(handleSupabaseTest),
-    "supabase-clear": withInitialization(handleSupabaseClear),
     "supabase-get-credentials": withInitialization(
       handleSupabaseGetCredentials,
     ),
@@ -145,9 +145,17 @@ async function initializeDatabaseProviders() {
   await Promise.all([History.init(), Youtube.init(), Search.init()]);
 }
 
+async function restrictSensitiveStorageAccess() {
+  await Promise.all([
+    chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
+    chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
+  ]);
+}
+
 async function initializeServiceWorker() {
   logger.info("Initializing service worker context...");
 
+  await restrictSensitiveStorageAccess();
   await settingsManager.initialize();
   await initializeDatabaseProviders();
 

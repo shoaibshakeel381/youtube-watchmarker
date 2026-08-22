@@ -5,6 +5,7 @@
  */
 
 import { credentialStorage } from "./credential-storage.js";
+import { supabaseAuthClient } from "./supabase-auth-client.js";
 
 /**
  * Supabase Database Provider
@@ -15,9 +16,9 @@ export class SupabaseDatabaseProvider {
     this.isInitialized = false;
     this.isConnected = false;
     this.tableName = "youtube_watch_history";
-    this.credentials = null;
+    this.configuration = null;
     this.baseUrl = null;
-    this.apiKey = null;
+    this.publishableKey = null;
     this.maxRetries = 3;
     this.retryDelay = 1000;
     this.activeControllers = new Set(); // Track active AbortControllers for cleanup
@@ -140,8 +141,11 @@ export class SupabaseDatabaseProvider {
     this.activeControllers.clear();
   }
 
-  validateApiKey(apiKey) {
-    return apiKey && typeof apiKey === "string" && apiKey.trim().length >= 20;
+  validatePublishableKey(publishableKey) {
+    return (
+      typeof publishableKey === "string" &&
+      publishableKey.startsWith("sb_publishable_")
+    );
   }
 
   /**
@@ -153,28 +157,29 @@ export class SupabaseDatabaseProvider {
   async loadCredentials({ throwOnError = false } = {}) {
     const fail = (message) => {
       this.baseUrl = null;
-      this.apiKey = null;
+      this.publishableKey = null;
       if (throwOnError) {
         throw new Error(message);
       }
       return false;
     };
 
-    this.credentials = await credentialStorage.getCredentials();
-    if (!this.credentials) {
-      return fail("No Supabase credentials found");
+    this.configuration = await credentialStorage.getConfiguration();
+    if (!this.configuration) {
+      return fail("No Supabase configuration found");
     }
 
-    if (!this.validateSupabaseUrl(this.credentials.supabaseUrl)) {
+    if (!this.validateSupabaseUrl(this.configuration.supabaseUrl)) {
       return fail("Invalid Supabase URL format");
     }
 
-    if (!this.validateApiKey(this.credentials.apiKey)) {
-      return fail("Invalid Supabase API key format");
+    if (!this.validatePublishableKey(this.configuration.publishableKey)) {
+      return fail("A Supabase publishable key is required");
     }
 
-    this.baseUrl = this.credentials.supabaseUrl;
-    this.apiKey = this.credentials.apiKey;
+    await supabaseAuthClient.getAccessToken();
+    this.baseUrl = this.configuration.supabaseUrl;
+    this.publishableKey = this.configuration.publishableKey;
     return true;
   }
 
@@ -264,7 +269,7 @@ export class SupabaseDatabaseProvider {
       if (!loaded) {
         return {
           exists: false,
-          reason: "credentials-missing",
+          reason: "configuration-or-session-missing",
         };
       }
 
@@ -304,16 +309,16 @@ export class SupabaseDatabaseProvider {
   }
 
   getTableStatusError(tableStatus) {
-    if (tableStatus.reason === "credentials-missing") {
-      return "No valid Supabase credentials found. Save the Supabase configuration first.";
+    if (tableStatus.reason === "configuration-or-session-missing") {
+      return "Configure Supabase and sign in before checking the watch history table.";
     }
 
     if (tableStatus.status === 401) {
-      return "Supabase rejected the API key (HTTP 401). Check the configured API key.";
+      return "Supabase rejected the Auth session (HTTP 401). Sign in again.";
     }
 
     if (tableStatus.status === 403) {
-      return "The configured Supabase API key cannot access the watch history table (HTTP 403).";
+      return "The signed-in user cannot access the watch history table (HTTP 403). Check its RLS policies.";
     }
 
     if (tableStatus.status === 404) {
@@ -395,12 +400,13 @@ export class SupabaseDatabaseProvider {
     }
 
     const url = `${this.baseUrl}/rest/v1${path}`;
+    const accessToken = await supabaseAuthClient.getAccessToken();
 
     // Security headers
     const requestHeaders = {
       "Content-Type": "application/json",
-      apikey: this.apiKey,
-      Authorization: `Bearer ${this.apiKey}`,
+      apikey: this.publishableKey,
+      Authorization: `Bearer ${accessToken}`,
       "X-Client-Info": "youtube-watchmarker-extension",
       // Add security headers
       "Cache-Control": "no-cache",
@@ -454,11 +460,9 @@ export class SupabaseDatabaseProvider {
    */
   async testConnection() {
     try {
-      if (!this.baseUrl || !this.apiKey) {
-        const loaded = await this.loadCredentials();
-        if (!loaded) {
-          return false;
-        }
+      const loaded = await this.loadCredentials();
+      if (!loaded) {
+        return false;
       }
 
       const response = await this.makeRequest(
@@ -544,7 +548,7 @@ export class SupabaseDatabaseProvider {
 
       const response = await this.makeRequest(
         "POST",
-        `/${this.tableName}?on_conflict=str_ident`,
+        `/${this.tableName}?on_conflict=user_id,str_ident`,
         videoData,
         {
           Prefer: "resolution=merge-duplicates,return=minimal",
@@ -718,7 +722,7 @@ export class SupabaseDatabaseProvider {
       // PostgREST supports batch operations
       const response = await this.makeRequest(
         "POST",
-        `/${this.tableName}?on_conflict=str_ident`,
+        `/${this.tableName}?on_conflict=user_id,str_ident`,
         videoData,
         {
           Prefer: "resolution=merge-duplicates,return=minimal",
@@ -867,8 +871,9 @@ export class SupabaseDatabaseProvider {
     try {
       // HTTP connections don't need explicit closing
       this.isConnected = false;
+      this.configuration = null;
       this.baseUrl = null;
-      this.apiKey = null;
+      this.publishableKey = null;
 
       console.log("Supabase provider closed");
       return true;

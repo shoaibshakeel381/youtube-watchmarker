@@ -105,7 +105,8 @@ Currently, only manual installation of the unpacked source code is supported. Th
 
 - **Optional remote storage**: PostgreSQL database in the cloud
 - **Cross-device sync**: Access your data from multiple devices
-- **Simple setup**: Users configure Supabase credentials and create a table
+- **Secure setup**: Configure a publishable key and use one sync login on every
+  computer; an owner-scoped RLS table keeps that login's rows private
 - **Direct access**: Direct table access via PostgREST API
 
 ## Data Management
@@ -139,7 +140,14 @@ Currently, only manual installation of the unpacked source code is supported. Th
 The extension stores data locally in IndexedDB by default. For additional backup, you can export your data as JSON or optionally configure Supabase for cloud storage.
 
 **How do I set up Supabase sync?**  
-Go to the extension options, configure your Supabase URL and API key, then switch to the Supabase provider. The extension will provide the SQL code to create the required table in your Supabase database - simply copy and run it in the SQL Editor.
+Go to the extension options and enter your 20-character Supabase project ID,
+`sb_publishable_...` key, sync email, and sync password, then choose **Save
+Credentials**. Repeat this on every computer with the same values. The login
+gives RLS a stable user ID so all your computers can access the same private
+rows. The password is used only for the initial sign-in and is never stored;
+the refresh token is encrypted at rest while the short-lived access token stays
+in browser-session memory. Never put a secret or service-role key in the
+extension.
 
 **What's the difference between browser history and YouTube history sync?**  
 Browser history sync extracts YouTube video visits from your browser's history, while YouTube history sync fetches your watch history directly from YouTube's API. Both sources are merged for completeness.

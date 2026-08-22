@@ -8,6 +8,7 @@
 import { credentialStorage } from "../credential-storage.js";
 import { databaseProviderFactory } from "../database-provider-factory.js";
 import { createHandler } from "../handler-wrapper.js";
+import { supabaseAuthClient } from "../supabase-auth-client.js";
 import { supabaseDatabaseProvider } from "../supabase-database-provider.js";
 
 /**
@@ -101,26 +102,46 @@ export const handleProviderSync = createHandler(async (request) => {
   }
 }, "handleProviderSync");
 
-/**
- * Configure Supabase credentials
- */
-export const handleSupabaseConfigure = createHandler(async (request) => {
-  const { credentials } = request;
+function requireEmailAndPassword(request) {
+  const email = request.email?.trim();
+  const password = request.password;
+  if (!email || !password) {
+    throw new Error("Email and password are required");
+  }
+  return { email, password };
+}
 
-  if (!credentials) {
-    return { success: false, error: "No credentials provided" };
+export const handleSupabaseSaveCredentials = createHandler(async (request) => {
+  const { configuration } = request;
+  const validation = credentialStorage.validateConfiguration(configuration);
+  if (!validation.isValid) {
+    throw new Error(validation.errors.join(". "));
   }
 
-  await credentialStorage.storeCredentials(credentials);
-  return { message: "Supabase configuration saved successfully" };
-}, "handleSupabaseConfigure");
+  const { email, password } = requireEmailAndPassword(request);
+  const { auth, session } = await supabaseAuthClient.authenticate(
+    {
+      ...configuration,
+      supabaseUrl: `https://${configuration.projectId}.supabase.co`,
+    },
+    email,
+    password,
+  );
+  await credentialStorage.storeAuthenticatedConfiguration(
+    configuration,
+    session,
+  );
+  await supabaseDatabaseProvider.close();
+  return { auth };
+}, "handleSupabaseSaveCredentials");
 
 /**
  * Test Supabase connection
  */
 export const handleSupabaseTest = createHandler(
   async () => {
-    const success = await credentialStorage.testConnection();
+    await supabaseAuthClient.testSession();
+    const success = await supabaseDatabaseProvider.testConnection();
     if (success) {
       return { message: "Supabase connection test successful" };
     } else {
@@ -128,17 +149,6 @@ export const handleSupabaseTest = createHandler(
     }
   },
   { name: "handleSupabaseTest", requiresRequest: false },
-);
-
-/**
- * Clear Supabase configuration
- */
-export const handleSupabaseClear = createHandler(
-  async () => {
-    await credentialStorage.clearCredentials();
-    return { message: "Supabase configuration cleared successfully" };
-  },
-  { name: "handleSupabaseClear", requiresRequest: false },
 );
 
 /**

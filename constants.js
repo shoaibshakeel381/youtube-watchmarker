@@ -87,8 +87,8 @@ export const STORAGE_KEYS = {
 
   // Supabase Configuration
   SUPABASE: {
-    URL: "supabaseUrl",
-    API_KEY: "apiKey",
+    PROJECT_ID: "projectId",
+    PUBLISHABLE_KEY: "publishableKey",
   },
 };
 
@@ -176,9 +176,8 @@ export const ACTIONS = {
   SET_SETTING: "set-setting",
 
   // Supabase Actions
-  SUPABASE_CONFIGURE: "supabase-configure",
+  SUPABASE_SAVE_CREDENTIALS: "supabase-save-credentials",
   SUPABASE_TEST: "supabase-test",
-  SUPABASE_CLEAR: "supabase-clear",
   SUPABASE_GET_CREDENTIALS: "supabase-get-credentials",
   SUPABASE_GET_STATUS: "supabase-get-status",
 };

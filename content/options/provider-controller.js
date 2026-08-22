@@ -31,16 +31,14 @@ export class ProviderController {
       void this.toggleAutoSync(event.target.checked);
     });
 
-    this.elements.saveSupabaseButton.addEventListener("click", () => {
-      void this.saveSupabaseConfig();
-    });
-
+    this.elements.saveSupabaseCredentialsButton.addEventListener(
+      "click",
+      () => {
+        void this.saveSupabaseCredentials();
+      },
+    );
     this.elements.testSupabaseButton.addEventListener("click", () => {
       void this.testSupabaseConnection();
-    });
-
-    this.elements.clearSupabaseButton.addEventListener("click", () => {
-      void this.clearSupabaseConfig();
     });
 
     this.elements.copySqlButton.addEventListener("click", () => {
@@ -91,9 +89,17 @@ export class ProviderController {
       if (!status?.success || !status?.status?.configured) {
         this.updateSupabaseStatus(
           "secondary",
-          "Enter your Supabase URL and Service Role key, then click Save or Test.",
+          "Enter your credentials and click Save Credentials.",
         );
         this.showSetupInstructions();
+        return;
+      }
+
+      if (!status.status.authenticated) {
+        this.updateSupabaseStatus(
+          "secondary",
+          "The saved login is no longer valid. Enter your credentials and save again.",
+        );
         return;
       }
 
@@ -164,35 +170,48 @@ export class ProviderController {
     }
   }
 
-  async saveSupabaseConfig() {
+  getSupabaseCredentialInput() {
+    const projectId = this.elements.supabaseProjectId.value.trim();
+    const publishableKey = this.elements.supabaseApiKey.value.trim();
+    if (!projectId || !publishableKey) {
+      throw new Error("Enter both the Supabase project ID and publishable key");
+    }
+    const email = this.elements.supabaseEmail.value.trim();
+    const password = this.elements.supabasePassword.value;
+    if (!email || !password) {
+      throw new Error("Email and password are required");
+    }
+    return {
+      configuration: { projectId, publishableKey },
+      email,
+      password,
+    };
+  }
+
+  async saveSupabaseCredentials() {
+    const button = this.elements.saveSupabaseCredentialsButton;
     try {
-      const credentials = {
-        supabaseUrl: this.elements.supabaseUrl.value.trim(),
-        apiKey: this.elements.supabaseApiKey.value.trim(),
-      };
-
-      if (!credentials.supabaseUrl || !credentials.apiKey) {
-        throw new Error("Supabase URL and API key are required");
-      }
-
-      setButtonBusy(this.elements.saveSupabaseButton, "Saving...");
-
+      const credentials = this.getSupabaseCredentialInput();
+      setButtonBusy(button, "Saving...");
       const response = await this.client.sendMessage({
-        action: "supabase-configure",
-        credentials,
+        action: "supabase-save-credentials",
+        ...credentials,
       });
-
       if (!response?.success) {
-        throw new Error(response?.error || "Configuration save failed");
+        throw new Error(response?.error || "Credentials could not be saved");
       }
 
       this.elements.supabaseApiKey.value = "";
-      this.feedback.success("Supabase configuration saved");
+      this.elements.supabasePassword.value = "";
+      await this.loadSupabaseConfig();
+      this.feedback.success("Supabase credentials saved securely");
       await this.switchProvider("supabase");
     } catch (error) {
-      this.feedback.error(`Supabase configuration failed: ${error.message}`);
+      this.feedback.error(
+        `Saving Supabase credentials failed: ${error.message}`,
+      );
     } finally {
-      clearButtonBusy(this.elements.saveSupabaseButton);
+      clearButtonBusy(button);
     }
   }
 
@@ -226,36 +245,9 @@ export class ProviderController {
         "danger",
         `Connection failed: ${error.message}`,
       );
+      await this.loadSupabaseConfig();
     } finally {
       clearButtonBusy(this.elements.testSupabaseButton);
-    }
-  }
-
-  async clearSupabaseConfig() {
-    if (
-      !confirm("Are you sure you want to clear the Supabase configuration?")
-    ) {
-      return;
-    }
-
-    try {
-      const response = await this.client.sendMessage({
-        action: "supabase-clear",
-      });
-      if (!response?.success) {
-        throw new Error(response?.error || "Clear failed");
-      }
-
-      this.elements.supabaseUrl.value = "";
-      this.elements.supabaseApiKey.value = "";
-      this.elements.currentConfig.classList.add("d-none");
-      this.hideSetupInstructions();
-      await this.commitProviderChange("indexeddb");
-      await this.updateProviderStatus();
-    } catch (error) {
-      this.feedback.error(
-        `Failed to clear Supabase configuration: ${error.message}`,
-      );
     }
   }
 
@@ -266,16 +258,27 @@ export class ProviderController {
       });
       if (!response?.success || !response.credentials) {
         this.elements.currentConfig.classList.add("d-none");
+        this.elements.testSupabaseButton.classList.add("d-none");
+        this.elements.testSupabaseButton.disabled = true;
         return;
       }
 
-      this.elements.currentUrl.textContent =
-        response.credentials.supabaseUrl || "-";
+      this.elements.currentProjectId.textContent =
+        response.credentials.projectId || "-";
       this.elements.currentApiKey.textContent =
-        response.credentials.apiKey || "-";
+        response.credentials.publishableKey || "-";
+      this.elements.currentAuthUser.textContent = response.credentials
+        .authenticated
+        ? response.credentials.userEmail || "Signed in"
+        : "Not signed in";
       this.elements.currentConfig.classList.remove("d-none");
+      this.elements.testSupabaseButton.classList.remove("d-none");
+      this.elements.testSupabaseButton.disabled =
+        !response.credentials.authenticated;
     } catch (_error) {
       this.elements.currentConfig.classList.add("d-none");
+      this.elements.testSupabaseButton.classList.add("d-none");
+      this.elements.testSupabaseButton.disabled = true;
     }
   }
 
