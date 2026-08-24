@@ -143,6 +143,12 @@ async function initializeDatabaseProviders() {
   Search.setProviderFactory(databaseProviderFactory);
 
   await Promise.all([History.init(), Youtube.init(), Search.init()]);
+  if (databaseProviderFactory.isSupabaseEnabled()) {
+    const syncResult = await databaseProviderFactory.performDeltaSync();
+    if (!syncResult.success) {
+      logger.warn("Supabase startup sync failed:", syncResult.error);
+    }
+  }
 }
 
 async function restrictSensitiveStorageAccess() {

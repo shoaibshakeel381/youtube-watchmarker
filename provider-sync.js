@@ -56,10 +56,21 @@ export async function performDeltaSync(indexedDBProvider, supabaseProvider) {
     const result = await chrome.storage.local.get([DELTA_SYNC_STORAGE_KEY]);
     const lastSync = result[DELTA_SYNC_STORAGE_KEY] || 0;
     const now = Date.now();
+    const [localCount, remoteCount] = await Promise.all([
+      indexedDBProvider.getVideoCount(),
+      supabaseProvider.getVideoCount(),
+    ]);
+    const syncStart = localCount > 0 && remoteCount === 0 ? 0 : lastSync;
+
+    if (syncStart === 0 && lastSync > 0) {
+      logger.info(
+        "Supabase is empty; rebuilding it from the complete local watch history",
+      );
+    }
 
     // Get videos modified since last sync from IndexedDB
     const modifiedVideos = await indexedDBProvider.getVideosByDateRange(
-      lastSync,
+      syncStart,
       now,
     );
 
@@ -193,7 +204,10 @@ export function mergeVideoData(data1, data2) {
           video.intTimestamp || 0,
         ),
         intCount: Math.max(existing.intCount || 1, video.intCount || 1),
-        strTitle: video.strTitle || existing.strTitle, // Prefer non-null title
+        strTitle:
+          (video.intTimestamp || 0) >= (existing.intTimestamp || 0)
+            ? video.strTitle || existing.strTitle
+            : existing.strTitle || video.strTitle,
       };
       merged.set(video.strIdent, mergedVideo);
     }

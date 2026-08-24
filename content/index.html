@@ -611,6 +611,33 @@ CREATE POLICY "Users can delete their watch history"
   ON public.youtube_watch_history FOR DELETE TO authenticated
   USING ((SELECT auth.uid()) = user_id);
 
+CREATE OR REPLACE FUNCTION public.preserve_watch_history_progress()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    NEW.int_timestamp := GREATEST(OLD.int_timestamp, NEW.int_timestamp);
+    NEW.int_count := GREATEST(
+      COALESCE(OLD.int_count, 1),
+      COALESCE(NEW.int_count, 1)
+    );
+    IF NULLIF(BTRIM(NEW.str_title), '') IS NULL THEN
+      NEW.str_title := OLD.str_title;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.preserve_watch_history_progress()
+  FROM PUBLIC, anon;
+CREATE TRIGGER preserve_watch_history_progress
+BEFORE UPDATE ON public.youtube_watch_history
+FOR EACH ROW EXECUTE FUNCTION public.preserve_watch_history_progress();
+
 REVOKE ALL ON public.youtube_watch_history FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON public.youtube_watch_history TO authenticated;

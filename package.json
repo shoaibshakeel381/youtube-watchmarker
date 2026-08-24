@@ -10,7 +10,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "echo 'No tests yet - consider adding tests for utility functions'"
+    "test": "node --test"
   },
   "keywords": [
     "youtube",
