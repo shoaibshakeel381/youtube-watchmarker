@@ -4,7 +4,7 @@ YouTube keeps track of your watch history and automatically marks videos that yo
 
 ## Installation
 
-Currently, only manual installation of the unpacked source code is supported. This extension has been tested on Chrome/Chromium browsers and has Firefox compatibility with some limitations.
+Currently, only manual installation of the unpacked source code is supported. This extension supports Chrome/Chromium and Firefox 150+.
 
 ## Current Features
 
@@ -88,7 +88,7 @@ Currently, only manual installation of the unpacked source code is supported. Th
 ## Browser Compatibility
 
 - **Chrome/Chromium**: Full support with all features
-- **Firefox**: Core functionality supported, Supabase sync requires manual setup
+- **Firefox 150+**: Full support, including Supabase sync
 - **Edge**: Full Chrome compatibility expected
 - **Safari**: Not currently supported
 
