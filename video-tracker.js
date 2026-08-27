@@ -22,6 +22,9 @@ export class VideoTracker {
     this.maxCacheSize = 10000;
     this.listenersBound = false;
     this.progressTrackingEnabled = true;
+    this.trackedNavigationUrls = new Map();
+    this.pendingNavigationRetries = new Map();
+    this.navigationRetryAttempts = new Map();
   }
 
   /**
@@ -129,73 +132,135 @@ export class VideoTracker {
   }
 
   /**
+   * Extract a video ID from a watch or Shorts URL.
+   * @param {string} url - YouTube URL
+   * @returns {string|null} Video ID when present
+   */
+  getVideoIdFromUrl(url) {
+    try {
+      const parsedUrl = new URL(url);
+      const shortsMatch = parsedUrl.pathname.match(
+        /^\/shorts\/([a-zA-Z0-9_-]{11})/,
+      );
+      return shortsMatch?.[1] || parsedUrl.searchParams.get("v");
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  /**
+   * Normalize a browser title before storing it.
+   * @param {string} title - Browser tab title
+   * @returns {string} Normalized title
+   */
+  normalizeNavigationTitle(title) {
+    const withoutSuffix = title.endsWith(" - YouTube")
+      ? title.slice(0, -10)
+      : title;
+    return decodeHtmlEntitiesAndFixEncoding(withoutSuffix);
+  }
+
+  /**
+   * Firefox can temporarily use the page URL as a tab title during navigation.
+   * That is not useful watch-history metadata, so wait for YouTube's title.
+   * @param {string} title - Normalized browser tab title
+   * @returns {boolean} Whether the title is a URL placeholder
+   */
+  isUrlPlaceholderTitle(title) {
+    return /^(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:watch\?|shorts\/)/i.test(
+      title.trim(),
+    );
+  }
+
+  scheduleNavigationRetry(tabId, expectedUrl) {
+    const pendingRetry = this.pendingNavigationRetries.get(tabId);
+    if (pendingRetry?.url === expectedUrl) {
+      return;
+    }
+
+    if (pendingRetry) {
+      clearTimeout(pendingRetry.timer);
+    }
+
+    const attempts = this.navigationRetryAttempts.get(tabId) || 0;
+    if (attempts >= 3) {
+      this.logger.debug("Giving up waiting for a YouTube video title");
+      return;
+    }
+    this.navigationRetryAttempts.set(tabId, attempts + 1);
+
+    const timer = setTimeout(async () => {
+      this.pendingNavigationRetries.delete(tabId);
+      try {
+        const updatedTab = await chrome.tabs.get(tabId);
+        if (updatedTab?.url !== expectedUrl) {
+          return;
+        }
+        await this.handleTabNavigation(
+          tabId,
+          { status: "complete" },
+          updatedTab,
+        );
+      } catch (error) {
+        this.logger.debug(
+          "Tab navigation retry failed (tab may have been closed):",
+          error.message,
+        );
+      }
+    }, TIMEOUTS.VIEW_COUNT_COOLDOWN / 15);
+
+    this.pendingNavigationRetries.set(tabId, { url: expectedUrl, timer });
+  }
+
+  /**
    * Handle tab navigation to YouTube videos
    * @param {number} tabId - Tab ID
    * @param {Object} changeInfo - Change information
    * @param {Object} tab - Tab object
    */
   async handleTabNavigation(tabId, changeInfo, tab) {
-    if (!this.isYouTubeVideoUrl(tab.url) || !changeInfo.title) {
+    if (!this.isYouTubeVideoUrl(tab.url)) {
       return;
     }
 
-    let title = changeInfo.title;
-    if (title.endsWith(" - YouTube")) {
-      title = title.slice(0, -10);
+    if (changeInfo.url) {
+      this.trackedNavigationUrls.delete(tabId);
+      this.navigationRetryAttempts.delete(tabId);
     }
 
-    // Normalize encoding to avoid mojibake before validation and saving
-    title = decodeHtmlEntitiesAndFixEncoding(title);
+    if (this.trackedNavigationUrls.get(tabId) === tab.url) {
+      return;
+    }
 
-    // Don't save videos with generic or invalid titles
-    if (!isValidVideoTitle(title)) {
+    // Direct URL loads commonly report a URL/status update before a title
+    // update. On completion, use the tab's current title as a fallback.
+    const rawTitle =
+      changeInfo.title ||
+      (changeInfo.status === "complete" ? tab.title : "");
+    const title = rawTitle ? this.normalizeNavigationTitle(rawTitle) : "";
+
+    if (!isValidVideoTitle(title) || this.isUrlPlaceholderTitle(title)) {
       this.logger.debug("Skipping video with invalid/generic title:", title);
-
-      // Schedule a retry to get a better title after the page loads
-      setTimeout(async () => {
-        try {
-          const updatedTab = await chrome.tabs.get(tabId);
-          if (
-            updatedTab &&
-            this.isYouTubeVideoUrl(updatedTab.url) &&
-            updatedTab.title
-          ) {
-            let retryTitle = updatedTab.title;
-            if (retryTitle.endsWith(" - YouTube")) {
-              retryTitle = retryTitle.slice(0, -10);
-            }
-            // Normalize encoding on retry as well
-            retryTitle = decodeHtmlEntitiesAndFixEncoding(retryTitle);
-
-            // Only proceed if we now have a valid title
-            if (isValidVideoTitle(retryTitle)) {
-              this.logger.debug(
-                "Retry successful, got valid title:",
-                retryTitle,
-              );
-              const videoId = updatedTab.url.split("&")[0].slice(-11);
-              await this.markVideoAsWatched(videoId, retryTitle);
-              await this.notifyYouTubeTabs(videoId, retryTitle);
-            } else {
-              this.logger.debug("Retry still has invalid title:", retryTitle);
-            }
-          }
-        } catch (error) {
-          this.logger.debug(
-            "Tab retry failed (tab may have been closed):",
-            error.message,
-          );
-        }
-      }, TIMEOUTS.VIEW_COUNT_COOLDOWN / 15); // 2 seconds
-
+      this.scheduleNavigationRetry(tabId, tab.url);
       return;
     }
 
-    const videoId = tab.url.split("&")[0].slice(-11);
+    const videoId = this.getVideoIdFromUrl(tab.url);
+    if (!videoId || videoId.length !== VIDEO_ID_LENGTH) {
+      return;
+    }
 
     try {
       // Mark video as watched
       await this.markVideoAsWatched(videoId, title);
+      this.trackedNavigationUrls.set(tabId, tab.url);
+      this.navigationRetryAttempts.delete(tabId);
+
+      const pendingRetry = this.pendingNavigationRetries.get(tabId);
+      if (pendingRetry) {
+        clearTimeout(pendingRetry.timer);
+        this.pendingNavigationRetries.delete(tabId);
+      }
 
       // Notify all YouTube tabs
       await this.notifyYouTubeTabs(videoId, title);
