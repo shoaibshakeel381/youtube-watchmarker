@@ -17,6 +17,7 @@
     'a.ytp-videowall-still[href*="/watch?v="]',
     'a.ShortsLockupViewModelHostEndpoint[href^="/shorts/"]',
     'a.reel-item-endpoint[href^="/shorts/"]',
+    'a.reel-item-endpoint[href*="/watch?v=]',
     'a.media-item-thumbnail-container[href^="/watch?v="]',
     "ytd-notification-renderer a",
     "ytd-notification-renderer .thumbnail-container img",
