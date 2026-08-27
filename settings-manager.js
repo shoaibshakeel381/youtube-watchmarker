@@ -54,7 +54,7 @@ const SETTINGS_CONFIG = {
     {
       key: "stylesheet_Hideprogress",
       defaultValue:
-        "ytd-thumbnail-overlay-resume-playback-renderer, ytm-thumbnail-overlay-resume-playback-renderer { display:none !important; }",
+        "ytd-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-resume-playback-renderer, ytm-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-progress-bar-view-model { display:none !important; }",
     },
   ],
 };
