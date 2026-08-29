@@ -1,6 +1,6 @@
 import { WebEncryption } from "./web-encryption.js";
 
-const CONFIG_VERSION = 5;
+const CONFIG_VERSION = 6;
 const STORAGE_KEY = "supabase_credentials";
 const ACCESS_SESSION_KEY = "supabase_access_session";
 
@@ -38,6 +38,15 @@ export class CredentialStorage {
   async getStoredRecord() {
     const result = await chrome.storage.local.get([this.storageKey]);
     const record = result[this.storageKey];
+
+    if (record?.version === 5) {
+      // Preserve the encrypted configuration and existing session. Version 5
+      // did not retain a login, so the user only needs to save credentials
+      // again when automatic sign-in is required.
+      record.version = CONFIG_VERSION;
+      await chrome.storage.local.set({ [this.storageKey]: record });
+      return record;
+    }
 
     if (record && record.version !== CONFIG_VERSION) {
       // Older formats stored a full URL, and version 1 could contain a
@@ -90,6 +99,10 @@ export class CredentialStorage {
         publishableKey: await this.encryption.encrypt(
           configuration.publishableKey,
         ),
+        login: {
+          email: await this.encryption.encrypt(configuration.email),
+          password: await this.encryption.encrypt(configuration.password),
+        },
         session: await this.encryptPersistentSession(session),
         storedAt: Date.now(),
       },
@@ -122,6 +135,21 @@ export class CredentialStorage {
     record.session = await this.encryptPersistentSession(session);
     await chrome.storage.local.set({ [this.storageKey]: record });
     await this.storeAccessSession(session);
+  }
+
+  async getLoginCredentials() {
+    try {
+      const record = await this.getStoredRecord();
+      if (!record?.login?.email || !record?.login?.password) return null;
+
+      return {
+        email: await this.encryption.decrypt(record.login.email),
+        password: await this.encryption.decrypt(record.login.password),
+      };
+    } catch (error) {
+      console.error("Failed to retrieve Supabase login credentials:", error);
+      return null;
+    }
   }
 
   async getSession() {

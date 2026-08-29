@@ -407,8 +407,15 @@ export class DatabaseProviderFactory {
         );
       }
 
-      // Disable Supabase sync on failure
+      // Keep Supabase selected for a future reconnect attempt. IndexedDB still
+      // remains the active primary provider, but an unavailable cloud service
+      // must not silently change the user's saved sync choice.
       this.supabaseEnabled = false;
+      this.providerType = "supabase";
+      this.currentProvider = this.primaryProvider;
+      await chrome.storage.local.set({
+        database_provider: "supabase",
+      });
 
       // Ensure IndexedDB is still working as primary
       if (!this.indexedDBProvider || !this.indexedDBProvider.isConnected) {
@@ -466,8 +473,12 @@ export class DatabaseProviderFactory {
           // Supabase initialization failed, falling back to IndexedDB
         }
 
-        // Fall back to IndexedDB if Supabase fails, but don't save preference
-        return await this.switchToIndexedDB(false);
+        // Use IndexedDB for this run without changing the saved Supabase
+        // preference or what the UI reports as the selected sync mode.
+        const initialized = await this.switchToIndexedDB(false);
+        this.providerType = "supabase";
+        this.currentProvider = this.primaryProvider;
+        return initialized;
       }
 
       // Default to IndexedDB (save preference since this is the default)

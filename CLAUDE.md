@@ -21,7 +21,7 @@ To develop: Load the extension as an unpacked extension in Chrome from the proje
 
 ### Extension Entry Points
 
-- **`background.js`** - Service worker entry point; initializes `ExtensionManager` which coordinates all modules
+- **`background.js`** - Background entry point; Chrome runs it as a service worker and Firefox as an event page
 - **`youtube.js`** - Content script injected into YouTube pages; contains `YouTubeWatchMarker` class for DOM manipulation
 - **`popup.js`** - Popup UI script for quick search functionality
 - **`content/index.js`** - Options page with `OptionsPageManager` class
@@ -70,11 +70,12 @@ Content scripts and UI → `chrome.runtime.sendMessage()` → `messageRouter` �
 - ES6 modules throughout (`"type": "module"` in package.json)
 - Classes for major components (e.g., `ExtensionManager`, `YouTubeWatchMarker`)
 - Async/await patterns preferred over callbacks
-- `polyfill.js` must be imported first in background.js for Firefox compatibility
+- Use `extension-api.js` for new cross-browser API access; it selects `browser` when available and otherwise `chrome`
 - ESLint + Prettier for code quality (configured in `eslint.config.mjs`)
 
 ## Browser Compatibility
 
 - Chrome/Chromium: Full support
-- Firefox: Requires polyfill.js; Supabase features may need manual setup
+- Firefox 150+: Full support. Firefox uses the `background.scripts` event-page fallback because it does not implement extension service workers.
+- Firefox does not implement `storage.StorageArea.setAccessLevel()`. Credential records remain encrypted in `storage.local`, with their non-exportable key held in extension-origin IndexedDB.
 - The manifest has Firefox-specific settings in `browser_specific_settings.gecko`

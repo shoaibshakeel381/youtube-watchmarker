@@ -41,10 +41,12 @@ async function writeKey(key) {
 }
 
 /**
- * Encrypt extension-local tokens with a non-exportable AES key stored
- * separately in IndexedDB. A compromised extension context could still ask
- * the browser to decrypt them, so public clients must never store privileged
- * server keys here.
+ * Encrypt extension-local tokens with a non-exportable AES key stored in the
+ * extension origin's IndexedDB, separately from the encrypted storage.local
+ * record. Firefox cannot restrict storage.local access by context, so this
+ * separation prevents content scripts from reading usable credentials. A
+ * compromised privileged extension context could still decrypt them, so public
+ * clients must never store privileged server keys here.
  */
 export class WebEncryption {
   constructor() {

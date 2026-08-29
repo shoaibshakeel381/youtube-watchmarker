@@ -5,6 +5,8 @@
   const { core } = watchmarker;
   const WATCHMARK_VISUAL_TARGET_SELECTOR =
     ".youwatch-mark img, img.youwatch-mark, .youwatch-mark .ytp-videowall-still-image, .ytp-videowall-still-image.youwatch-mark";
+  const HIDE_PROGRESS_FALLBACK_STYLESHEET =
+    "ytd-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-resume-playback-renderer, ytm-thumbnail-overlay-resume-playback-renderer, yt-thumbnail-overlay-progress-bar-view-model { display:none !important; }";
 
   function buildWatchmarkVisualRule(declaration) {
     return `${WATCHMARK_VISUAL_TARGET_SELECTOR} { ${declaration} !important; }`;
@@ -81,11 +83,13 @@
         stylesheet += `${settings.stylesheet_Showdate}\n`;
       }
 
-      if (
-        settings.idVisualization_Hideprogress &&
-        settings.stylesheet_Hideprogress
-      ) {
-        stylesheet += `${settings.stylesheet_Hideprogress}\n`;
+      if (settings.idVisualization_Hideprogress) {
+        if (settings.stylesheet_Hideprogress) {
+          stylesheet += `${settings.stylesheet_Hideprogress}\n`;
+        }
+        // Keep the current YouTube component selector working for people whose
+        // synced settings still contain an older stylesheet value.
+        stylesheet += `${HIDE_PROGRESS_FALLBACK_STYLESHEET}\n`;
       }
 
       return stylesheet;

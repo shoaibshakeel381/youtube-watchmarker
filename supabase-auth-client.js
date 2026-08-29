@@ -73,6 +73,26 @@ export class SupabaseAuthClient {
     };
   }
 
+  async signInWithStoredCredentials() {
+    const [configuration, credentials] = await Promise.all([
+      this.getConfiguration(),
+      credentialStorage.getLoginCredentials(),
+    ]);
+    if (!credentials) {
+      throw new Error(
+        "Supabase login credentials are missing. Save your email and password again.",
+      );
+    }
+
+    const { session } = await this.authenticate(
+      configuration,
+      credentials.email,
+      credentials.password,
+    );
+    await credentialStorage.storeSession(session);
+    return session;
+  }
+
   refreshSession() {
     if (!this.refreshPromise) {
       this.refreshPromise = this.performSessionRefresh().finally(() => {
@@ -85,7 +105,7 @@ export class SupabaseAuthClient {
   async performSessionRefresh() {
     const previousSession = await credentialStorage.getSession();
     if (!previousSession?.refreshToken) {
-      throw new Error("Supabase session is missing. Sign in again.");
+      return this.signInWithStoredCredentials();
     }
 
     try {
@@ -95,16 +115,22 @@ export class SupabaseAuthClient {
       const session = this.createStoredSession(payload, previousSession);
       await credentialStorage.storeSession(session);
       return session;
-    } catch (error) {
-      await credentialStorage.clearSession();
-      throw new Error(`Supabase session expired: ${error.message}`);
+    } catch (_error) {
+      try {
+        return await this.signInWithStoredCredentials();
+      } catch (loginError) {
+        await credentialStorage.clearSession();
+        throw new Error(
+          `Supabase session refresh and automatic sign-in failed: ${loginError.message}`,
+        );
+      }
     }
   }
 
   async getAccessToken() {
     const session = await credentialStorage.getSession();
     if (!session) {
-      throw new Error("Sign in to Supabase before accessing cloud data");
+      return (await this.signInWithStoredCredentials()).accessToken;
     }
 
     if (session.expiresAt - Date.now() <= REFRESH_MARGIN_MS) {
@@ -125,8 +151,22 @@ export class SupabaseAuthClient {
     });
 
     if (!response.ok) {
-      await credentialStorage.clearSession();
-      throw new Error("Supabase Auth session is invalid. Sign in again.");
+      const session = await this.signInWithStoredCredentials();
+      const retryResponse = await fetch(
+        `${configuration.supabaseUrl}/auth/v1/user`,
+        {
+          headers: {
+            apikey: configuration.publishableKey,
+            Authorization: `Bearer ${session.accessToken}`,
+            "X-Client-Info": "youtube-watchmarker-extension",
+          },
+        },
+      );
+      if (!retryResponse.ok) {
+        await credentialStorage.clearSession();
+        throw new Error("Supabase Auth session is invalid. Sign in again.");
+      }
+      return retryResponse.json();
     }
     return response.json();
   }

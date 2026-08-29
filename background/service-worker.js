@@ -1,12 +1,12 @@
 // @ts-check
 
 /**
- * Chrome MV3 service worker bootstrap.
- * Registers extension listeners synchronously and lazily initializes the
- * extension context before handlers execute.
+ * Extension background bootstrap. Chrome runs this as an MV3 service worker;
+ * Firefox runs it as an MV3 event-page background script.
  */
 
 import { logger } from "../logger.js";
+import { extensionApi } from "../extension-api.js";
 import { messageRouter } from "../message-router.js";
 import { settingsManager } from "../settings-manager.js";
 import { alarmManager } from "../alarm-manager.js";
@@ -152,10 +152,21 @@ async function initializeDatabaseProviders() {
 }
 
 async function restrictSensitiveStorageAccess() {
-  await Promise.all([
-    chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
-    chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }),
-  ]);
+  const storageAreas = ["local", "session"];
+
+  await Promise.all(
+    storageAreas.map(async (storageAreaName) => {
+      const storageArea = extensionApi.storage[storageAreaName];
+      if (typeof storageArea.setAccessLevel !== "function") {
+        logger.debug(
+          `Storage access-level controls are unavailable for ${storageAreaName}; continuing with Firefox-compatible storage defaults.`,
+        );
+        return;
+      }
+
+      await storageArea.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+    }),
+  );
 }
 
 async function initializeServiceWorker() {
@@ -204,7 +215,7 @@ async function performStartupSynchronization() {
   await ensureServiceWorkerReady();
 
   try {
-    const result = await chrome.storage.sync.get(["idCondition_Youhist"]);
+    const result = await extensionApi.storage.sync.get(["idCondition_Youhist"]);
     if (result.idCondition_Youhist === true) {
       await syncYoutube();
     }
@@ -217,7 +228,7 @@ async function performPeriodicSync() {
   await ensureServiceWorkerReady();
 
   try {
-    const result = await chrome.storage.sync.get([
+    const result = await extensionApi.storage.sync.get([
       "idCondition_Browhist",
       "idCondition_Youhist",
     ]);
@@ -237,11 +248,11 @@ async function performPeriodicSync() {
 registerMessageHandlers();
 alarmManager.bindListener();
 
-chrome.runtime.onInstalled.addListener(() => {
+extensionApi.runtime.onInstalled.addListener(() => {
   void performStartupSynchronization();
 });
 
-chrome.runtime.onStartup.addListener(() => {
+extensionApi.runtime.onStartup.addListener(() => {
   void performStartupSynchronization();
 });
 

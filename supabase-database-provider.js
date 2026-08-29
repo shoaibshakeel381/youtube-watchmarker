@@ -428,7 +428,16 @@ export class SupabaseDatabaseProvider {
 
     const requestFn = async () => {
       try {
-        const response = await fetch(url, config);
+        let response = await fetch(url, config);
+
+        // A session can be revoked between getAccessToken() and this request.
+        // Sign in with the encrypted saved login once before reporting an auth
+        // failure or allowing the circuit breaker to disable cloud sync.
+        if (response.status === 401) {
+          const session = await supabaseAuthClient.signInWithStoredCredentials();
+          config.headers.Authorization = `Bearer ${session.accessToken}`;
+          response = await fetch(url, config);
+        }
 
         if (!response.ok && throwOnHttpError) {
           const errorText = await response.text();
