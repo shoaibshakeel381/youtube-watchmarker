@@ -144,10 +144,10 @@ Go to the extension options and enter your 20-character Supabase project ID,
 `sb_publishable_...` key, sync email, and sync password, then choose **Save
 Credentials**. Repeat this on every computer with the same values. The login
 gives RLS a stable user ID so all your computers can access the same private
-rows. The password is used only for the initial sign-in and is never stored;
-the refresh token is encrypted at rest while the short-lived access token stays
-in browser-session memory. Never put a secret or service-role key in the
-extension.
+rows. The email, password, and refresh token are encrypted at rest so the
+extension can sign in again if a refresh token expires; the short-lived access
+token stays in browser-session memory. Never put a secret or service-role key
+in the extension.
 
 **What's the difference between browser history and YouTube history sync?**  
 Browser history sync extracts YouTube video visits from your browser's history, while YouTube history sync fetches your watch history directly from YouTube's API. Both sources are merged for completeness.

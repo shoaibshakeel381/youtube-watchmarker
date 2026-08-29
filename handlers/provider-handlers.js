@@ -128,7 +128,7 @@ export const handleSupabaseSaveCredentials = createHandler(async (request) => {
     password,
   );
   await credentialStorage.storeAuthenticatedConfiguration(
-    configuration,
+    { ...configuration, email, password },
     session,
   );
   await supabaseDatabaseProvider.close();
